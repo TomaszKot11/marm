@@ -10,12 +10,15 @@
 #include <cstring>
 #include <stm32f4xx_ll_gpio.h>
 #include "/home/marm/Pulpit/isixsamples/isixrtos/libisix/include/isix/osstats.h"
-// #include "/home/marm/Pulpit/isixsamples/isixrtos/libisix/include/isix/osstats.c"
-// #include "/home/marm/Pulpit/isixsamples/isixrtos/libisix/kernel/osstats.c"
 
 namespace structures {
 	char input_buffer[100];
 	unsigned int current_input_idx = 0;
+
+	void clean_input_buffer() {
+		current_input_idx = 0;
+		memset(input_buffer, 0, 100 * sizeof(char));
+	}
 }
 
 
@@ -124,65 +127,52 @@ uint8_t receive_data()
 }
 
 void handle_input(char c) {
-	if(c != 1)
-		structures::input_buffer[structures::current_input_idx++] = c;
-
-	if(strcmp("led -n 2", structures::input_buffer) == 0) {
+	if(c != 1 && c == 13) {
+		if(strcmp("led -n 2", structures::input_buffer) == 0) {
 		toggle_pin(GPIOD, LL_GPIO_PIN_12);
-		structures::current_input_idx = 0;
-		memset(structures::input_buffer, 0, 100);
 	} else if(strcmp("led -n 3", structures::input_buffer) == 0) {
 		toggle_pin(GPIOD, LL_GPIO_PIN_13);
-		structures::current_input_idx = 0;
-		memset(structures::input_buffer, 0, 100);
 	} else if(strcmp("led -n 4", structures::input_buffer) == 0) {
 		toggle_pin(GPIOD, LL_GPIO_PIN_14);
-		structures::current_input_idx = 0;
-		memset(structures::input_buffer, 0, 100);
 	} else if(strcmp("led -n 5", structures::input_buffer) == 0) {
 		toggle_pin(GPIOD, LL_GPIO_PIN_15);
-		structures::current_input_idx = 0;
-		memset(structures::input_buffer, 0, 100);
-	} else if(strcmp("user", structures::input_buffer)==0) {
+	} else if(strcmp("user", structures::input_buffer) == 0) {
 		const auto is_pressed = LL_GPIO_IsInputPinSet(GPIOA, LL_GPIO_PIN_0);
 		char buffer[100];
-
-		structures::current_input_idx = 0;
-		memset(structures::input_buffer, 0, 100);
 
 		if(is_pressed) {
 			const auto is_pressed_two = LL_GPIO_IsInputPinSet(GPIOA, LL_GPIO_PIN_0);
 			if(is_pressed_two) {
-				sprintf(buffer, "USER button clicked");
+				sprintf(buffer, "\n\rUSER button clicked\n\r");
 				write_buffer(buffer);
 				return;
 			}
 		}
 
-		sprintf(buffer, "USER button not clicked");
+		sprintf(buffer, "\n\rUSER button not clicked.\n\r");
 		write_buffer(buffer);
 	} else if(strcmp("heap", structures::input_buffer) == 0) {
 			char buffer[100];
-
-			structures::current_input_idx = 0;
-			memset(structures::input_buffer, 0, 100);
-
 			isix_memory_stat_t mem_info;
 			isix::heap_stats(mem_info);
-			sprintf(buffer, "\nIlosc wolnej pamieci to: %d\n\r", mem_info.free);
+			sprintf(buffer, "\n\rHeap free memory is: %d\n\r", mem_info.free);
 			write_buffer(buffer);
 			return;
 	} else if(strcmp("cpu", structures::input_buffer) == 0) {
 		char buffer[100];
 
 		int cpu_usage = isix::cpuload();
-		
-		sprintf(buffer, "\nAktuale zuzycie procesora to: %f \n\r", (cpu_usage / 10.0));
+		sprintf(buffer, "\nCurrent CPU usage is: %d\r\n", cpu_usage);
 		write_buffer(buffer);
 		return;
-	} else if(strcmp("clean", structures::input_buffer) == 0) {
-		structures::current_input_idx = 0;
-		memset(structures::input_buffer, 0, 100);
+	} else {
+		char buffer[100]; 
+		sprintf(buffer, "\r\nNo such command. Please try again.\r\n");
+		write_buffer(buffer);
+	}
+		structures::clean_input_buffer();
+	} else if(c != 1) { 
+		structures::input_buffer[structures::current_input_idx++] = c;
 	}
 }
 
@@ -198,7 +188,11 @@ namespace app {
             char c = receive_data();
             if (c != 1) {
 				handle_input(c);
-				sprintf(buffer, "Kliniete: %c\n\r", c);
+				if(c == 13) {
+					sprintf(buffer, "%c\r\n", c);
+				} else {
+					sprintf(buffer, "%c", c);
+				}
                 write_buffer(buffer);
             }
         }
