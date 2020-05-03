@@ -11,10 +11,12 @@
 #include <stm32f4xx_ll_gpio.h>
 #include "/home/marm/Pulpit/isixsamples/isixrtos/libisix/include/isix/osstats.h"
 #include <queue>
+#include <vector>
 
 namespace structures {
 	char input_buffer[100];
 	unsigned int current_input_idx = 0;
+	unsigned int current_idx_output = 0;
 	std::queue<char> output_buffer;
 
 	void clean_input_buffer() {
@@ -189,22 +191,19 @@ void write_buffer_two(char buffer) {
 
 extern "C" {
 	void usart1_isr_vector() {
+		// && LL_USART_IsEnabledIT_TXE(USART1)
+		if(LL_USART_IsActiveFlag_TXE(USART1)) {
+			if(!structures::output_buffer.empty()) {
+				LL_USART_TransmitData8(USART1, structures::output_buffer.front());
+				structures::output_buffer.pop();
+			} 
+		}
+
 		if(LL_USART_IsActiveFlag_RXNE(USART1) && LL_USART_IsEnabledIT_RXNE(USART1)) {
 			char c = LL_USART_ReceiveData8(USART1);
 			handle_input(c);
-			// LL_USART_TransmitData8(USART1, c);
 			write_buffer_two(c);
 			LL_USART_ClearFlag_RXNE(USART1);
-			// enable to transmit
-			LL_USART_EnableIT_TXE(USART1);
-		}
-
-		if(LL_USART_IsActiveFlag_TXE(USART1) && LL_USART_IsEnabledIT_TXE(USART1)) {
-			// char buffer[100];
-			char el = structures::output_buffer.front();
-			// structures::output_buffer.pop();
-			LL_USART_TransmitData8(USART1, el);
-			LL_USART_DisableIT_TXE(USART1);
 		}
 	}
 }
