@@ -42,7 +42,7 @@ void configure_usart1(){
 	// 	oversampling
 	USART_InitStructure.OverSampling = LL_USART_OVERSAMPLING_16;      
 	// 	pass the initialization structure 
-	LL_USART_Init(USART1, &USART_InitStructure); //TODO: check the error?
+	LL_USART_Init(USART1, &USART_InitStructure);
 	// enable the USART 
 	LL_USART_Enable(USART1);
 }
@@ -87,7 +87,7 @@ namespace app {
 		for(i = 0;;++i){
             uint8_t c = receive_data();
             if (c != 1){
-				sprintf(buffer, "Clicked: %c\n\r", c);
+				sprintf(buffer, "Clicked: %c\r\n", c);
                 write_buffer(buffer);
             }
         }
