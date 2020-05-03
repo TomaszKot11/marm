@@ -10,10 +10,12 @@
 #include <cstring>
 #include <stm32f4xx_ll_gpio.h>
 #include "/home/marm/Pulpit/isixsamples/isixrtos/libisix/include/isix/osstats.h"
+#include <queue>
 
 namespace structures {
 	char input_buffer[100];
 	unsigned int current_input_idx = 0;
+	std::queue<char> output_buffer;
 
 	void clean_input_buffer() {
 		current_input_idx = 0;
@@ -64,6 +66,11 @@ void configure_leds() {
 		LL_GPIO_SetPinOutputType(GPIOD, LL_GPIO_PIN_15, LL_GPIO_OUTPUT_PUSHPULL);
 }
 
+void configure_NVIC() {
+	NVIC_SetPriority(USART1_IRQn, 0);
+	NVIC_EnableIRQ(USART1_IRQn);
+}
+
 void configure_usart1(){
 	// structure for USART configuration 
 	LL_USART_InitTypeDef USART_InitStructure;
@@ -86,12 +93,20 @@ void configure_usart1(){
 	USART_InitStructure.OverSampling = LL_USART_OVERSAMPLING_16;      
 	// 	pass the initialization structure 
 	LL_USART_Init(USART1, &USART_InitStructure); //TODO: check the error?
+
+
+	// LL_USART_EnableIT_ERROR(USART1);
 	// enable the USART 
 	LL_USART_Enable(USART1);
+	// configure interrupts 
+	LL_USART_EnableIT_RXNE(USART1);
+	LL_USART_EnableIT_TXE(USART1);
 }
+
 
 void configure_uc() {
 	configure_gpiob_6_7_usart1();
+	configure_NVIC();
 	configure_usart1();
 	configure_leds();
 	configure_USER();
@@ -117,85 +132,87 @@ void write_buffer(char string_to_send[]){
     while(!LL_USART_IsActiveFlag_TC(USART1)){}
 }
 
-uint8_t receive_data()
-{
-    if(LL_USART_IsActiveFlag_RXNE(USART1)){ // check the Not Empty Read Data Register Flag
-        return LL_USART_ReceiveData8(USART1);
-    } 
-
-    return (uint8_t)1;
-}
-
 void handle_input(char c) {
-	if(c != 1 && c == 13) {
-		if(strcmp("led -n 2", structures::input_buffer) == 0) {
-		toggle_pin(GPIOD, LL_GPIO_PIN_12);
-	} else if(strcmp("led -n 3", structures::input_buffer) == 0) {
-		toggle_pin(GPIOD, LL_GPIO_PIN_13);
-	} else if(strcmp("led -n 4", structures::input_buffer) == 0) {
-		toggle_pin(GPIOD, LL_GPIO_PIN_14);
-	} else if(strcmp("led -n 5", structures::input_buffer) == 0) {
-		toggle_pin(GPIOD, LL_GPIO_PIN_15);
-	} else if(strcmp("user", structures::input_buffer) == 0) {
-		const auto is_pressed = LL_GPIO_IsInputPinSet(GPIOA, LL_GPIO_PIN_0);
-		char buffer[100];
+	if(c == 13) {
+			if(strcmp("led -n 2", structures::input_buffer) == 0) {
+				toggle_pin(GPIOD, LL_GPIO_PIN_12);
+			} else if(strcmp("led -n 3", structures::input_buffer) == 0) {
+				toggle_pin(GPIOD, LL_GPIO_PIN_13);
+			} else if(strcmp("led -n 4", structures::input_buffer) == 0) {
+				toggle_pin(GPIOD, LL_GPIO_PIN_14);
+			} else if(strcmp("led -n 5", structures::input_buffer) == 0) {
+				toggle_pin(GPIOD, LL_GPIO_PIN_15);
+			} else if(strcmp("user", structures::input_buffer) == 0) {
+				const auto is_pressed = LL_GPIO_IsInputPinSet(GPIOA, LL_GPIO_PIN_0);
+				char buffer[100];
 
-		if(is_pressed) {
-			const auto is_pressed_two = LL_GPIO_IsInputPinSet(GPIOA, LL_GPIO_PIN_0);
-			if(is_pressed_two) {
-				sprintf(buffer, "\n\rUSER button clicked\n\r");
+				if(is_pressed) {
+					const auto is_pressed_two = LL_GPIO_IsInputPinSet(GPIOA, LL_GPIO_PIN_0);
+					if(is_pressed_two) {
+						sprintf(buffer, "\n\rUSER button clicked\n\r");
+						write_buffer(buffer);
+						return;
+					}
+				}
+
+				sprintf(buffer, "\n\rUSER button not clicked.\n\r");
+				write_buffer(buffer);
+			} else if(strcmp("heap", structures::input_buffer) == 0) {
+					char buffer[100];
+					isix_memory_stat_t mem_info;
+					isix::heap_stats(mem_info);
+					sprintf(buffer, "\n\rHeap free memory is: %d\n\r", mem_info.free);
+					write_buffer(buffer);
+					return;
+			} else if(strcmp("cpu", structures::input_buffer) == 0) {
+				char buffer[100];
+
+				int cpu_usage = isix::cpuload();
+				sprintf(buffer, "\nCurrent CPU usage is: %d\r\n", cpu_usage);
 				write_buffer(buffer);
 				return;
+			} else {
+				char buffer[200]; 
+				sprintf(buffer, "\r\nNo such command. Please try again.\r\n");
+				write_buffer(buffer);
 			}
+				structures::clean_input_buffer();
+		} else {
+			structures::input_buffer[structures::current_input_idx++] = c;
+		}
+}
+	
+
+void write_buffer_two(char buffer) {
+	structures::output_buffer.push(buffer);
+}
+
+extern "C" {
+	void usart1_isr_vector() {
+		if(LL_USART_IsActiveFlag_RXNE(USART1) && LL_USART_IsEnabledIT_RXNE(USART1)) {
+			char c = LL_USART_ReceiveData8(USART1);
+			handle_input(c);
+			// LL_USART_TransmitData8(USART1, c);
+			write_buffer_two(c);
+			LL_USART_ClearFlag_RXNE(USART1);
+			// enable to transmit
+			LL_USART_EnableIT_TXE(USART1);
 		}
 
-		sprintf(buffer, "\n\rUSER button not clicked.\n\r");
-		write_buffer(buffer);
-	} else if(strcmp("heap", structures::input_buffer) == 0) {
-			char buffer[100];
-			isix_memory_stat_t mem_info;
-			isix::heap_stats(mem_info);
-			sprintf(buffer, "\n\rHeap free memory is: %d\n\r", mem_info.free);
-			write_buffer(buffer);
-			return;
-	} else if(strcmp("cpu", structures::input_buffer) == 0) {
-		char buffer[100];
-
-		int cpu_usage = isix::cpuload();
-		sprintf(buffer, "\nCurrent CPU usage is: %d\r\n", cpu_usage);
-		write_buffer(buffer);
-		return;
-	} else {
-		char buffer[100]; 
-		sprintf(buffer, "\r\nNo such command. Please try again.\r\n");
-		write_buffer(buffer);
-	}
-		structures::clean_input_buffer();
-	} else if(c != 1) { 
-		structures::input_buffer[structures::current_input_idx++] = c;
+		if(LL_USART_IsActiveFlag_TXE(USART1) && LL_USART_IsEnabledIT_TXE(USART1)) {
+			// char buffer[100];
+			char el = structures::output_buffer.front();
+			// structures::output_buffer.pop();
+			LL_USART_TransmitData8(USART1, el);
+			LL_USART_DisableIT_TXE(USART1);
+		}
 	}
 }
 
 namespace app {
     auto lab3_thread() -> void
     {
-		// char buffer[100];
-		// unsigned int i;
-	
-		configure_uc();
-		// program loop
-		// for(i = 0;;++i){
-        //     char c = receive_data();
-        //     if (c != 1) {
-		// 		handle_input(c);
-		// 		if(c == 13) {
-		// 			sprintf(buffer, "%c\r\n", c);
-		// 		} else {
-		// 			sprintf(buffer, "%c", c);
-		// 		}
-        //         write_buffer(buffer);
-        //     }
-        // }
+		configure_uc();	
 	}
 }
 
